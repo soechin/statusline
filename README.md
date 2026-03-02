@@ -35,25 +35,19 @@ Sonnet 4.6 | my-project  ⎇ main
 
 ```json
 {
+  "statusLine": {
+    "type": "command",
+    "command": "node ~/.claude/statusline/statusline.mjs",
+    "padding": 0
+  },
   "hooks": {
-    "StatusLine": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ~/.claude/statusline/statusline.mjs"
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
       {
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "node ~/.claude/statusline/fetch-usage.mjs"
+            "command": "node ~/.claude/statusline/fetch-usage.mjs &"
           }
         ]
       }
@@ -64,7 +58,7 @@ Sonnet 4.6 | my-project  ⎇ main
         "hooks": [
           {
             "type": "command",
-            "command": "node ~/.claude/statusline/fetch-usage.mjs --force"
+            "command": "node ~/.claude/statusline/fetch-usage.mjs --force &"
           }
         ]
       }
@@ -73,9 +67,9 @@ Sonnet 4.6 | my-project  ⎇ main
 }
 ```
 
-- **StatusLine**：每次更新 statusline 時執行 `statusline.mjs`
-- **PreToolUse**：工具呼叫前更新用量快取（快取 60 秒內不重複抓取）
-- **Stop**：對話結束時強制更新快取
+- **statusLine**：頂層設定，指定 statusline 的顯示命令
+- **PreToolUse**：工具呼叫前於背景更新用量快取（快取 60 秒內不重複抓取）
+- **Stop**：對話結束時於背景強制更新快取
 
 ## 需求
 
