@@ -141,6 +141,33 @@ if (dir) {
   } catch {}
 }
 
+// --- git file changes ---
+let gitChanges = "";
+if (dir && branch) {
+  try {
+    const status = execSync("git status --porcelain 2>/dev/null", {
+      cwd: dir,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 3000,
+    }).trim();
+    if (status) {
+      let added = 0, modified = 0, deleted = 0;
+      for (const line of status.split("\n")) {
+        const code = line.slice(0, 2);
+        if (code.includes("D")) deleted++;
+        else if (code.includes("M")) modified++;
+        else if (code.includes("?") || code.includes("A")) added++;
+      }
+      const parts = [];
+      if (added) parts.push(`+${added}`);
+      if (modified) parts.push(`~${modified}`);
+      if (deleted) parts.push(`-${deleted}`);
+      gitChanges = parts.join(" ");
+    }
+  } catch {}
+}
+
 // --- context window ---
 const ctxPct = input?.context_window?.used_percentage;
 let ctxData;
@@ -187,54 +214,62 @@ if (existsSync(CACHE_FILE)) {
 }
 
 // --- build line 1 with adaptive truncation ---
-function buildLine1(model, dirName, branch, maxWidth) {
+function buildLine1(model, dirName, branch, gitChanges, maxWidth) {
   const modelColor = rgb(110, 170, 255);
   const dirColor = gray;
   const branchColor = gray;
+  const changesColor = rgb(180, 180, 180);
 
-  const build = (m, d, b) => {
+  const build = (m, d, b, g) => {
     let line = `${modelColor}${m}${reset}`;
     if (d) {
       line += `${pipe}${dirColor}${d}${reset}`;
-      if (b) line += `  ${branchColor}⎇ ${b}${reset}`;
+      if (b) {
+        line += `${pipe}${branchColor}${b}${reset}`;
+        if (g) line += ` ${changesColor}${g}${reset}`;
+      }
     }
     return line;
   };
 
-  if (!maxWidth) return build(model, dirName, branch);
+  if (!maxWidth) return build(model, dirName, branch, gitChanges);
 
-  // 1. 完整顯示
-  let line = build(model, dirName, branch);
+  // 1. 完整顯示（含 gitChanges）
+  let line = build(model, dirName, branch, gitChanges);
   if (visibleLength(line) <= maxWidth) return line;
 
-  // 2. 截斷 branch name
+  // 2. 隱藏 gitChanges
+  line = build(model, dirName, branch, "");
+  if (visibleLength(line) <= maxWidth) return line;
+
+  // 3. 截斷 branch name
   if (branch) {
-    const baseLen = visibleLength(build(model, dirName, ""));
+    const baseLen = visibleLength(build(model, dirName, "", ""));
     const availForBranch = maxWidth - baseLen - 2; // 2 for spaces before branch
     if (availForBranch >= 3) {
-      line = build(model, dirName, truncateVisible(branch, availForBranch));
+      line = build(model, dirName, truncateVisible(branch, availForBranch), "");
       if (visibleLength(line) <= maxWidth) return line;
     }
   }
 
-  // 3. 隱藏 branch
-  line = build(model, dirName, "");
+  // 4. 隱藏 branch
+  line = build(model, dirName, "", "");
   if (visibleLength(line) <= maxWidth) return line;
 
-  // 4. 截斷 folder name
+  // 5. 截斷 folder name
   if (dirName) {
     const availForDir = maxWidth - model.length - 3; // 3 for pipe " | "
     if (availForDir >= 3) {
-      line = build(model, truncateVisible(dirName, availForDir), "");
+      line = build(model, truncateVisible(dirName, availForDir), "", "");
       if (visibleLength(line) <= maxWidth) return line;
     }
   }
 
-  // 5. 隱藏 folder + branch
-  line = build(model, "", "");
+  // 6. 隱藏 folder + branch
+  line = build(model, "", "", "");
   if (visibleLength(line) <= maxWidth) return line;
 
-  // 6. 截斷 model name
+  // 7. 截斷 model name
   return `${modelColor}${bold}${truncateVisible(model, maxWidth)}${reset}`;
 }
 
@@ -316,6 +351,6 @@ function buildLine2(ctxData, fiveData, sevenData, maxWidth) {
 // --- output ---
 const termWidth = getTerminalWidth();
 const maxWidth = termWidth ? termWidth - 6 - RIGHT_NOTIFICATION_RESERVE : null;
-const line1 = buildLine1(model, dirName, branch, maxWidth);
+const line1 = buildLine1(model, dirName, branch, gitChanges, maxWidth);
 const line2 = buildLine2(ctxData, fiveData, sevenData, maxWidth);
 process.stdout.write(line2 + reset + "\n" + line1);
