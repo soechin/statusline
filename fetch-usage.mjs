@@ -14,6 +14,15 @@ const CACHE_FILE = join(tmpdir(), ".claude_usage_cache.json");
 const CACHE_MAX_AGE = 60; // seconds
 const force = process.argv.includes("--force");
 
+function touchCache() {
+  try {
+    const existing = existsSync(CACHE_FILE)
+      ? readFileSync(CACHE_FILE, "utf-8")
+      : "{}";
+    writeFileSync(CACHE_FILE, existing);
+  } catch {}
+}
+
 // --- cache check ---
 if (!force && existsSync(CACHE_FILE)) {
   try {
@@ -66,7 +75,10 @@ function getToken() {
 }
 
 const token = getToken();
-if (!token) process.exit(0);
+if (!token) {
+  touchCache();
+  process.exit(0);
+}
 
 // --- fetch usage ---
 try {
@@ -75,14 +87,17 @@ try {
     headers: {
       accept: "application/json",
       "content-type": "application/json",
-      "user-agent": "claude-code/2.1.11",
+      "user-agent": "claude-code/statusline",
       authorization: `Bearer ${token}`,
       "anthropic-beta": "oauth-2025-04-20",
     },
     signal: AbortSignal.timeout(10000),
   });
 
-  if (!res.ok) process.exit(0);
+  if (!res.ok) {
+    touchCache();
+    process.exit(0);
+  }
 
   const data = await res.json();
   const cache = {
@@ -93,5 +108,6 @@ try {
 
   writeFileSync(CACHE_FILE, JSON.stringify(cache));
 } catch {
+  touchCache();
   process.exit(0);
 }

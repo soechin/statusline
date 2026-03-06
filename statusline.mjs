@@ -193,9 +193,14 @@ if (ctxPct != null) {
 // --- usage from cache ---
 let fiveData = null;
 let sevenData = null;
+let usageStale = false;
 if (existsSync(CACHE_FILE)) {
   try {
     const cache = JSON.parse(readFileSync(CACHE_FILE, "utf-8"));
+
+    if (cache.fetched_at) {
+      usageStale = (Date.now() - cache.fetched_at) >= 300_000; // 5 分鐘
+    }
 
     if (cache.five_hour?.utilization != null) {
       const pct = Math.round(cache.five_hour.utilization);
@@ -274,7 +279,7 @@ function buildLine1(model, dirName, branch, gitChanges, maxWidth) {
 }
 
 // --- build line 2 with adaptive truncation ---
-function buildLine2(ctxData, fiveData, sevenData, maxWidth) {
+function buildLine2(ctxData, fiveData, sevenData, usageStale, maxWidth) {
   const buildCtx = (showTokens, barWidth = 10) => {
     const bar = progressBar(ctxData.pct, barWidth, ctxData.color);
     let s = `${bar} ${ctxData.color}${ctxData.pct}%${reset}`;
@@ -288,10 +293,15 @@ function buildLine2(ctxData, fiveData, sevenData, maxWidth) {
     if (!fiveData) return "";
     let s = "";
     if (barWidth > 0) {
-      const bar = progressBar(fiveData.pct, barWidth, fiveData.color);
+      const barColor = usageStale ? `${dim}${fiveData.color}` : fiveData.color;
+      const bar = progressBar(fiveData.pct, barWidth, barColor);
       s += `${bar} `;
     }
-    s += `${fiveData.color}${fiveData.pct}%${reset}`;
+    if (usageStale) {
+      s += `${dim}${fiveData.color}?${reset}`;
+    } else {
+      s += `${fiveData.color}${fiveData.pct}%${reset}`;
+    }
     if (showDelta && fiveData.delta) s += ` ${dim}${gray}(${fiveData.delta})${reset}`;
     return s;
   };
@@ -300,10 +310,15 @@ function buildLine2(ctxData, fiveData, sevenData, maxWidth) {
     if (!sevenData) return "";
     let s = "";
     if (barWidth > 0) {
-      const bar = progressBar(sevenData.pct, barWidth, sevenData.color);
+      const barColor = usageStale ? `${dim}${sevenData.color}` : sevenData.color;
+      const bar = progressBar(sevenData.pct, barWidth, barColor);
       s += `${bar} `;
     }
-    s += `${sevenData.color}${sevenData.pct}%${reset}`;
+    if (usageStale) {
+      s += `${dim}${sevenData.color}?${reset}`;
+    } else {
+      s += `${sevenData.color}${sevenData.pct}%${reset}`;
+    }
     if (showDelta && sevenData.delta) s += ` ${dim}${gray}(${sevenData.delta})${reset}`;
     return s;
   };
@@ -352,5 +367,5 @@ function buildLine2(ctxData, fiveData, sevenData, maxWidth) {
 const termWidth = getTerminalWidth();
 const maxWidth = termWidth ? termWidth - 6 - RIGHT_NOTIFICATION_RESERVE : null;
 const line1 = buildLine1(model, dirName, branch, gitChanges, maxWidth);
-const line2 = buildLine2(ctxData, fiveData, sevenData, maxWidth);
+const line2 = buildLine2(ctxData, fiveData, sevenData, usageStale, maxWidth);
 process.stdout.write(line2 + reset + "\n" + line1);
