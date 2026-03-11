@@ -114,11 +114,11 @@ try {
 
   writeFileSync(CACHE_FILE, JSON.stringify(cache));
 
-  const fivePct = data.five_hour
-    ? Math.round((data.five_hour.used / data.five_hour.limit) * 100)
+  const fivePct = data.five_hour?.utilization != null
+    ? Math.round(data.five_hour.utilization)
     : null;
-  const sevenPct = data.seven_day
-    ? Math.round((data.seven_day.used / data.seven_day.limit) * 100)
+  const sevenPct = data.seven_day?.utilization != null
+    ? Math.round(data.seven_day.utilization)
     : null;
   log("api_success", { five_hour_pct: fivePct, seven_day_pct: sevenPct });
 } catch (err) {
