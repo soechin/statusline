@@ -1,0 +1,8 @@
+{
+  "name": "claude-statusline",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "proper-lockfile": "^4.1.2"
+  }
+}

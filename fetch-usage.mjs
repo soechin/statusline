@@ -5,14 +5,41 @@
 //   --force: skip cache age check (used by Stop hook)
 //   default: skip if cache is < 60s old (used by PreToolUse hook)
 
-import { readFileSync, writeFileSync, statSync, existsSync } from "fs";
+import {
+  readFileSync,
+  writeFileSync,
+  appendFileSync,
+  statSync,
+  existsSync,
+} from "fs";
 import { execSync } from "child_process";
 import { tmpdir, homedir, platform } from "os";
 import { join } from "path";
+import { lockSync } from "proper-lockfile";
 
 const CACHE_FILE = join(tmpdir(), ".claude_usage_cache.json");
+const LOG_FILE = join(tmpdir(), ".claude_usage.log");
+const LOG_MAX_BYTES = 50 * 1024; // 50 KB
 const CACHE_MAX_AGE = 60; // seconds
 const force = process.argv.includes("--force");
+
+function log(msg, extra = {}) {
+  const entry = { t: new Date().toISOString(), pid: process.pid, m: msg, ...extra };
+  try {
+    appendFileSync(LOG_FILE, JSON.stringify(entry) + "\n");
+  } catch {}
+}
+
+function trimLogIfNeeded() {
+  try {
+    const st = statSync(LOG_FILE);
+    if (st.size <= LOG_MAX_BYTES) return;
+    const content = readFileSync(LOG_FILE, "utf-8");
+    const half = content.slice(content.length >>> 1);
+    const firstNewline = half.indexOf("\n");
+    writeFileSync(LOG_FILE, firstNewline >= 0 ? half.slice(firstNewline + 1) : half);
+  } catch {}
+}
 
 function touchCache() {
   try {
@@ -29,6 +56,76 @@ if (!force && existsSync(CACHE_FILE)) {
     const age = (Date.now() - statSync(CACHE_FILE).mtimeMs) / 1000;
     if (age < CACHE_MAX_AGE) process.exit(0);
   } catch {}
+}
+
+// --- acquire lock ---
+// Ensure cache file exists before locking
+if (!existsSync(CACHE_FILE)) writeFileSync(CACHE_FILE, "{}");
+
+let release;
+try {
+  release = lockSync(CACHE_FILE, {
+    realpath: false,
+    onCompromised: () => process.exit(0),
+  });
+} catch {
+  // Another process holds the lock — exit silently
+  process.exit(0);
+}
+
+try {
+  const age = (Date.now() - statSync(CACHE_FILE).mtimeMs) / 1000;
+  log("fetch", { age: Math.round(age), ...(force ? { force: true } : {}) });
+  trimLogIfNeeded();
+
+  // --- get token ---
+  const token = getToken();
+  if (!token) {
+    log("no_token");
+    touchCache();
+    process.exit(0);
+  }
+
+  // --- fetch usage ---
+  const res = await fetch("https://api.anthropic.com/api/oauth/usage", {
+    method: "GET",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      "user-agent": "claude-code/statusline",
+      authorization: `Bearer ${token}`,
+      "anthropic-beta": "oauth-2025-04-20",
+    },
+    signal: AbortSignal.timeout(10000),
+  });
+
+  if (!res.ok) {
+    log("api_error", { status: res.status });
+    touchCache();
+    process.exit(0);
+  }
+
+  const data = await res.json();
+  const cache = {
+    five_hour: data.five_hour ?? null,
+    seven_day: data.seven_day ?? null,
+    fetched_at: Date.now(),
+  };
+
+  writeFileSync(CACHE_FILE, JSON.stringify(cache));
+
+  const fivePct = data.five_hour
+    ? Math.round((data.five_hour.used / data.five_hour.limit) * 100)
+    : null;
+  const sevenPct = data.seven_day
+    ? Math.round((data.seven_day.used / data.seven_day.limit) * 100)
+    : null;
+  log("api_success", { five_hour_pct: fivePct, seven_day_pct: sevenPct });
+} catch (err) {
+  log("api_exception", { error: String(err?.message ?? err) });
+  touchCache();
+} finally {
+  release();
 }
 
 // --- get token ---
@@ -72,42 +169,4 @@ function getToken() {
   }
 
   return null;
-}
-
-const token = getToken();
-if (!token) {
-  touchCache();
-  process.exit(0);
-}
-
-// --- fetch usage ---
-try {
-  const res = await fetch("https://api.anthropic.com/api/oauth/usage", {
-    method: "GET",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-      "user-agent": "claude-code/statusline",
-      authorization: `Bearer ${token}`,
-      "anthropic-beta": "oauth-2025-04-20",
-    },
-    signal: AbortSignal.timeout(10000),
-  });
-
-  if (!res.ok) {
-    touchCache();
-    process.exit(0);
-  }
-
-  const data = await res.json();
-  const cache = {
-    five_hour: data.five_hour ?? null,
-    seven_day: data.seven_day ?? null,
-    fetched_at: Date.now(),
-  };
-
-  writeFileSync(CACHE_FILE, JSON.stringify(cache));
-} catch {
-  touchCache();
-  process.exit(0);
 }
