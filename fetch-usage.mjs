@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // fetch-usage.mjs
 // Fetches Claude API usage stats and writes to cache file.
-// Usage: node fetch-usage.mjs [--force]
+// Usage: node fetch-usage.mjs [--force] [--cooldown=N]
 //   --force: skip cache age check (used by Stop hook)
-//   default: skip if cache is < 60s old (used by PreToolUse hook)
+//   --cooldown=N: cooldown interval in seconds (default: 300)
 
 import {
   readFileSync,
@@ -20,7 +20,14 @@ import { lockSync } from "proper-lockfile";
 const CACHE_FILE = join(tmpdir(), ".claude_usage_cache.json");
 const LOG_FILE = join(tmpdir(), ".claude_usage.log");
 const LOG_MAX_BYTES = 50 * 1024; // 50 KB
-const CACHE_MAX_AGE = 60; // seconds
+const CACHE_MAX_AGE = (() => {
+  const arg = process.argv.find(a => a.startsWith("--cooldown="));
+  if (arg) {
+    const val = parseInt(arg.split("=")[1], 10);
+    if (Number.isFinite(val) && val > 0) return val;
+  }
+  return 300;
+})();
 const force = process.argv.includes("--force");
 
 function log(msg, extra = {}) {
@@ -110,6 +117,7 @@ try {
     five_hour: data.five_hour ?? null,
     seven_day: data.seven_day ?? null,
     fetched_at: Date.now(),
+    cooldown: CACHE_MAX_AGE,
   };
 
   writeFileSync(CACHE_FILE, JSON.stringify(cache));
