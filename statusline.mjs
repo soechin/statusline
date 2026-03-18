@@ -199,7 +199,7 @@ if (existsSync(CACHE_FILE)) {
     const cache = JSON.parse(readFileSync(CACHE_FILE, "utf-8"));
 
     if (cache.fetched_at) {
-      const staleThr = (cache.cooldown ?? 300) * 1000;
+      const staleThr = (cache.cooldown ?? 300) * 1000 * 2;
       usageStale = (Date.now() - cache.fetched_at) >= staleThr;
     }
 
